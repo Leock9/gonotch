@@ -21,6 +21,8 @@ type Config struct {
 	Order []string `json:"order,omitempty"`
 	// AutoHide tucks the notch into a thin strip on the edge until the pointer reaches it
 	AutoHide bool `json:"auto_hide,omitempty"`
+	// NoUpdateCheck stops the daily question to GitHub about a newer release
+	NoUpdateCheck bool `json:"no_update_check,omitempty"`
 }
 
 func Default() Config {

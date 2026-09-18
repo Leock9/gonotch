@@ -21,6 +21,7 @@ gonotch demo # or bin/gonotch demo: the UI with made-up data, no accounts needed
 | `internal/sessions` | Claude Code session states, from hooks and transcripts |
 | `internal/app`, `internal/server` | The glue, and the Unix-socket endpoint |
 | `internal/logs` | The log file: `~/.local/state/gonotch/gonotch.log`, rotated at 1 MiB |
+| `internal/update` | The daily release check and `gonotch update` |
 | `internal/ui` | GTK 3 + Cairo; the only package with cgo |
 
 ## Guidelines
@@ -35,6 +36,14 @@ gonotch demo # or bin/gonotch demo: the UI with made-up data, no accounts needed
 - **Test behaviour, not wiring.** New logic in the core comes with a test; `go test -race` must pass.
 - **UI changes:** attach a screenshot, and run `make screenshots` if the README's images change.
   It renders them in a container from the real drawing code (`internal/ui/snapshot_test.go`).
+
+## Releasing
+
+Note each change under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) as it lands. To release,
+rename that section to `## [X.Y.Z] - YYYY-MM-DD`, add its compare link at the bottom, commit, and
+push a `vX.Y.Z` tag: the release workflow builds on Ubuntu 22.04 and publishes the tarball, the
+`.deb` and `SHA256SUMS` with that section as the release notes (`scripts/release-notes.sh`). A tag
+without a section fails before anything is built. Running notches see the release within a day.
 
 ## Adding a provider
 

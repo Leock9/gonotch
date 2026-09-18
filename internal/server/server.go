@@ -6,6 +6,7 @@
 //	GET  /state            the same State the notch draws, as JSON
 //	POST /refresh          ?provider=claude|codex|cursor|copilot, or every provider without it
 //	POST /settings         opens the settings window
+//	POST /quit             quits the app (`gonotch update`, to start the new binary)
 package server
 
 import (
@@ -57,6 +58,10 @@ func Handler(a *app.App) http.Handler {
 	mux.HandleFunc("POST /settings", func(w http.ResponseWriter, r *http.Request) {
 		a.RequestSettings()
 		fmt.Fprintln(w, "ok")
+	})
+	mux.HandleFunc("POST /quit", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "ok")
+		a.RequestQuit()
 	})
 	return mux
 }
@@ -111,6 +116,29 @@ func Listen(path string) (net.Listener, error) {
 		return nil, err
 	}
 	return &listener{Listener: ln, lock: lock}, nil
+}
+
+// WaitReleased waits until nobody holds the socket's lock, that is until the instance that owned it
+// has exited, and reports false if that takes longer than timeout.
+func WaitReleased(path string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		lock, err := os.OpenFile(path+".lock", os.O_RDWR, 0)
+		if errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+		if err == nil {
+			err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			lock.Close() // and with it the lock just taken
+			if err == nil {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func Serve(ctx context.Context, ln net.Listener, a *app.App) {

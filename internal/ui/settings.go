@@ -102,6 +102,17 @@ func newSettings(u *UI) *settingsWindow {
 	body.PackStart(row(s.t("autohide"), auto), false, false, 0)
 	body.PackStart(hint(s.t("autohide_hint")), false, false, 0)
 
+	// Updates
+	body.PackStart(spaced(heading(s.t("updates"))), false, false, 0)
+	check := gtk.NewSwitch()
+	check.SetActive(!cfg.NoUpdateCheck)
+	check.ConnectStateSet(func(on bool) bool {
+		u.app.UpdateConfig(func(c *config.Config) { c.NoUpdateCheck = !on })
+		return false
+	})
+	body.PackStart(row(s.t("update_check"), check), false, false, 0)
+	body.PackStart(hint(s.t("update_hint")), false, false, 0)
+
 	s.win.Add(body)
 	s.win.ConnectDestroy(func() { u.settings = nil })
 	s.fillProviders()

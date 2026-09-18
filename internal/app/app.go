@@ -16,6 +16,7 @@ import (
 	"github.com/leock9/gonotch/internal/providers/copilot"
 	"github.com/leock9/gonotch/internal/providers/cursor"
 	"github.com/leock9/gonotch/internal/sessions"
+	"github.com/leock9/gonotch/internal/update"
 	"github.com/leock9/gonotch/internal/usage"
 )
 
@@ -34,6 +35,8 @@ type State struct {
 	Providers []ProviderState    `json:"providers"`
 	Sessions  []sessions.Session `json:"sessions"`
 	Aggregate sessions.State     `json:"aggregate"`
+	// Update is a newer release, once the daily check has found one
+	Update *update.Release `json:"update,omitempty"`
 }
 
 // saveAfter: a slider drag changes the settings dozens of times a second; the file is written once
@@ -54,6 +57,8 @@ type App struct {
 	snaps      map[string]usage.Snapshot
 	subs       []chan struct{}
 	onSettings func()
+	onQuit     func()
+	update     *update.Release
 	// transcripts: infer sessions from Claude Code's transcripts (off in the demo)
 	transcripts bool
 }
@@ -225,6 +230,31 @@ func (a *App) RequestSettings() {
 	}
 }
 
+// OnQuit registers what ends the app; RequestQuit calls it (the server does, when `gonotch update`
+// has replaced the binaries and wants the new one running).
+func (a *App) OnQuit(f func()) {
+	a.mu.Lock()
+	a.onQuit = f
+	a.mu.Unlock()
+}
+
+func (a *App) RequestQuit() {
+	a.mu.Lock()
+	f := a.onQuit
+	a.mu.Unlock()
+	if f != nil {
+		f()
+	}
+}
+
+// SetUpdate records a newer release, for the menu and /state.
+func (a *App) SetUpdate(r update.Release) {
+	a.mu.Lock()
+	a.update = &r
+	a.mu.Unlock()
+	a.notify()
+}
+
 // Subscribe returns a channel that receives a signal after every change. Signals coalesce: a slow
 // reader sees one, then reads State.
 func (a *App) Subscribe() <-chan struct{} {
@@ -285,5 +315,11 @@ func (a *App) State() State {
 	}
 	st.Sessions = a.store.List()
 	st.Aggregate = sessions.Aggregate(st.Sessions)
+	a.mu.Lock()
+	if a.update != nil {
+		r := *a.update
+		st.Update = &r
+	}
+	a.mu.Unlock()
 	return st
 }

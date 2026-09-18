@@ -20,7 +20,7 @@ build:
 # The core has no cgo, so its tests never wait for GTK to compile
 test:
 	go test -race -count=1 ./internal/app/... ./internal/config/... ./internal/hooks/... ./internal/logs/... ./internal/providers/... \
-		./internal/server/... ./internal/sessions/... ./internal/text/... ./internal/ui/layout/... \
+		./internal/server/... ./internal/sessions/... ./internal/text/... ./internal/ui/layout/... ./internal/update/... \
 		./internal/usage/... ./internal/x11/...
 
 run: build

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/diamondburned/gotk4/pkg/cairo"
@@ -27,6 +28,7 @@ import (
 	"github.com/leock9/gonotch/internal/sessions"
 	"github.com/leock9/gonotch/internal/text"
 	"github.com/leock9/gonotch/internal/ui/layout"
+	"github.com/leock9/gonotch/internal/update"
 	"github.com/leock9/gonotch/internal/x11"
 )
 
@@ -426,6 +428,12 @@ func (u *UI) menu(provider int) {
 		item.ConnectActivate(f)
 		m.Append(item)
 	}
+	if r := u.state.Update; r != nil {
+		rel := *r
+		add(fmt.Sprintf(text.T(u.lang, "update_to"), rel.Version), func() { startUpdate(rel) })
+		add(fmt.Sprintf(text.T(u.lang, "whats_new"), rel.Version), func() { openURL(rel.URL) })
+		m.Append(&gtk.NewSeparatorMenuItem().MenuItem)
+	}
 	add(text.T(u.lang, "refresh"), func() { u.app.Refresh("") })
 	if provider >= 0 && provider < len(u.state.Providers) {
 		page := u.state.Providers[provider].UsagePage
@@ -444,6 +452,25 @@ func (u *UI) menu(provider int) {
 	add(text.T(u.lang, "quit"), gtk.MainQuit)
 	m.ShowAll()
 	m.PopupAtPointer(nil)
+}
+
+// startUpdate runs `gonotch update --notify`, which quits this notch and starts the new one, so it
+// runs in a session of its own to outlive it. Where the binaries cannot be replaced (a .deb in
+// /usr/bin) the release page, with its .deb, opens instead.
+func startUpdate(r update.Release) {
+	exe, err := os.Executable()
+	if err != nil || !update.Writable(filepath.Dir(exe)) {
+		openURL(r.URL)
+		return
+	}
+	cmd := exec.Command(exe, "update", "--notify")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		slog.Error("starting the update", "err", err)
+		return
+	}
+	slog.Info("updating", "to", r.Version)
+	_ = cmd.Process.Release()
 }
 
 func logHooks(msg string, err error) {

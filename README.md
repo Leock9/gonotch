@@ -95,8 +95,18 @@ make install    # → ~/.local/bin; the first build compiles the GTK bindings fo
 
 #### Update and uninstall
 
-Running the installer again updates in place. To remove gonotch, its Claude Code hooks and its
-autostart entry:
+```bash
+gonotch update          # install the latest release and restart the notch on it
+gonotch update --check  # only say whether there is one
+```
+
+Once a day gonotch asks GitHub which release is the latest; a newer one is announced with a desktop
+notification and waits at the top of the notch's right-click menu (*Update to vX.Y.Z*, *What's new*).
+Nothing but that request is sent; switch it off under Settings › Updates. What changed in each
+release is in the [changelog](CHANGELOG.md). Installed from the `.deb`, update with `apt` as you
+installed it; before v0.3.0, run the installer again.
+
+To remove gonotch, its Claude Code hooks and its autostart entry:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leock9/gonotch/main/scripts/install.sh | sh -s -- --uninstall
@@ -117,7 +127,8 @@ curl -fsSL https://raw.githubusercontent.com/leock9/gonotch/main/scripts/install
 | `gonotch log` | The end of the log, where errors are kept |
 | `gonotch install-hooks` / `uninstall-hooks` | Wire Claude Code's hooks to `gonotch-hook`, or remove them |
 | `gonotch autostart on\|off` | An XDG autostart entry |
-| `gonotch version` | The installed version |
+| `gonotch update [--check]` | Install the latest release and restart the notch on it |
+| `gonotch version` | The installed version, and a newer one once it has been found |
 
 `install-hooks` edits `~/.claude/settings.json` in place — only its own entries, keeping the rest of
 the file's order and format — and writes a backup first. Without hooks, session states are inferred

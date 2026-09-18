@@ -125,3 +125,29 @@ func TestParseHookMapsEventNamesAndModelShapes(t *testing.T) {
 		t.Fatal("garbage maps to nothing")
 	}
 }
+
+func TestWaitReleasedWaitsForTheOwnerToGo(t *testing.T) {
+	path := socketPath(t)
+	if !WaitReleased(path, 0) {
+		t.Fatal("nothing ever ran here: nothing to wait for")
+	}
+	ln, err := Listen(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if WaitReleased(path, 200*time.Millisecond) {
+		t.Fatal("the lock is held: the wait must time out")
+	}
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		ln.Close()
+	}()
+	if !WaitReleased(path, 2*time.Second) {
+		t.Fatal("the owner closed: the wait must end")
+	}
+	if again, err := Listen(path); err != nil {
+		t.Fatalf("the next instance takes the socket after the wait: %v", err)
+	} else {
+		again.Close()
+	}
+}
