@@ -36,6 +36,9 @@ type Runner struct {
 	P       Provider
 	Refresh chan struct{}
 	Publish func(usage.Snapshot)
+	// Enabled, when set and false, pauses polling: a ring switched off costs no requests. A refresh
+	// request wakes the runner to look again.
+	Enabled func() bool
 }
 
 func NewRunner(p Provider, publish func(usage.Snapshot)) *Runner {
@@ -58,49 +61,44 @@ func (r *Runner) Run(ctx context.Context, prev usage.Snapshot) {
 	prev.Provider = r.P.ID()
 	r.Publish(prev)
 	for {
+		if r.Enabled != nil && !r.Enabled() {
+			if !wait(ctx, absentRecheck, r.Refresh) {
+				return
+			}
+			continue
+		}
 		if !r.P.Present() {
 			r.Publish(usage.Snapshot{Provider: r.P.ID(), Status: usage.StatusAbsent})
-			if !r.sleep(ctx, absentRecheck) {
+			if !wait(ctx, absentRecheck, r.Refresh) {
 				return
 			}
 			continue
 		}
-		if wait := time.Until(prev.BackoffUntil); wait > 0 {
-			if !sleepCtx(ctx, wait) {
+		if backoff := time.Until(prev.BackoffUntil); backoff > 0 {
+			if !wait(ctx, backoff, nil) {
 				return
 			}
 			continue
 		}
-		next, wait := r.P.Poll(ctx, prev)
+		next, after := r.P.Poll(ctx, prev)
 		next.Provider = r.P.ID()
 		r.Publish(next)
 		prev = next
-		if !r.sleep(ctx, wait) {
+		if !wait(ctx, after, r.Refresh) {
 			return
 		}
 	}
 }
 
-// sleep waits, or less if a refresh is asked for; false once the context ends.
-func (r *Runner) sleep(ctx context.Context, d time.Duration) bool {
+// wait sleeps for d; a signal on wake cuts it short, and a nil wake never fires. False once ctx ends.
+func wait(ctx context.Context, d time.Duration, wake <-chan struct{}) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
 		return false
 	case <-t.C:
-	case <-r.Refresh:
+	case <-wake:
 	}
 	return true
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
 }

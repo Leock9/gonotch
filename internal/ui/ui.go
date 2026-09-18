@@ -20,6 +20,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/leock9/gonotch/internal/app"
+	"github.com/leock9/gonotch/internal/config"
 	"github.com/leock9/gonotch/internal/hooks"
 	"github.com/leock9/gonotch/internal/sessions"
 	"github.com/leock9/gonotch/internal/text"
@@ -29,39 +30,71 @@ import (
 
 const (
 	collapseAfter = 250 * time.Millisecond
-	frame         = 50 * time.Millisecond
+	frame         = 66 * time.Millisecond // 15 fps: smooth enough for a slow arc, and wakeups scale with it
+	arcBox        = 46                    // the square the status arc turns in, inside the ring
 	pressFor      = 180 * time.Millisecond
+
+	// Auto-hide: the strip left on the edge, how long the pill takes to slide, and how long the
+	// pointer may be away before it slides back
+	stripW    = 7.0
+	revealFor = 160 * time.Millisecond
+	hideAfter = 700 * time.Millisecond
 )
 
 type UI struct {
 	app  *app.App
 	lang text.Lang
+	cfg  config.Config // the settings as of the last update
 
 	win *gtk.Window
 	da  *gtk.DrawingArea
 
 	state app.State
 	lay   layout.Layout
+	// The on-screen part of the window, in its own coordinates: it hangs off the monitor when the
+	// pill sits near an end of the edge, and the card must stay out of that part
+	visTop, visBottom float64
 
 	hover     int // provider whose card is open, -1 for none
 	card      layout.Rect
 	tail      layout.Rect
 	cardModel *cardModel
 
+	// reveal is how far the pill is out, 0 (tucked into the strip) to 1; revealTo is where it is going
+	reveal, revealTo float64
+	lastFrame        time.Time
+
 	collapse glib.SourceHandle
+	hide     glib.SourceHandle
 	anim     glib.SourceHandle
 	pressed  map[string]time.Time
 	glyphs   *glyphCache
 	// pcts are the rings' percentage texts, laid out once per update rather than every frame
 	pcts []*pango.Layout
+
+	settings *settingsWindow
+	// now is the clock the animations read; nil is the wall clock (snapshot frames set their own)
+	now func() time.Time
+}
+
+func (u *UI) clock() time.Time {
+	if u.now != nil {
+		return u.now()
+	}
+	return time.Now()
 }
 
 // Run shows the notch and blocks in the GTK main loop until Quit.
 func Run(a *app.App) {
 	gtk.Init()
-	u := &UI{app: a, lang: text.Detect(), hover: -1, pressed: map[string]time.Time{}}
+	u := &UI{app: a, lang: text.Detect(), hover: -1, pressed: map[string]time.Time{}, cfg: a.Config()}
+	u.reveal, u.revealTo = 1, 1
+	if u.cfg.AutoHide {
+		u.reveal, u.revealTo = 0, 0
+	}
 	u.build()
 	u.update()
+	a.OnSettings(func() { glib.IdleAdd(u.openSettings) })
 
 	// Changes arrive from provider goroutines; GTK is touched only on its own thread
 	var pending sync.Mutex
@@ -75,6 +108,11 @@ func Run(a *app.App) {
 		}
 	}()
 	gtk.Main()
+}
+
+// Quit ends the main loop; safe from any goroutine.
+func Quit() {
+	glib.IdleAdd(gtk.MainQuit)
 }
 
 func (u *UI) build() {
@@ -102,6 +140,7 @@ func (u *UI) build() {
 	})
 	u.da.ConnectLeaveNotifyEvent(func(*gdk.EventCrossing) bool {
 		u.scheduleCollapse()
+		u.scheduleHide()
 		return false
 	})
 	u.da.ConnectButtonPressEvent(func(ev *gdk.EventButton) bool {
@@ -110,6 +149,7 @@ func (u *UI) build() {
 	})
 	u.win.Add(u.da)
 	u.glyphs = newGlyphCache(u.win.ScaleFactor())
+	u.lay = layout.Compute(0, u.cfg.Edge != "left")
 	u.win.ShowAll()
 	u.place()
 	u.win.Screen().ConnectMonitorsChanged(u.place)
@@ -124,7 +164,8 @@ func release(cr *cairo.Context) {
 	cr.Close()
 }
 
-// place pins the window to the configured edge of the primary monitor.
+// place pins the window to the configured edge of the primary monitor, with the pill's centre at
+// the configured height. The pill stays on screen; the transparent rest of the window may not.
 func (u *UI) place() {
 	display := gdk.DisplayGetDefault()
 	mon := display.PrimaryMonitor()
@@ -135,23 +176,42 @@ func (u *UI) place() {
 		return
 	}
 	geo, work := mon.Geometry(), mon.Workarea()
-	cfg := u.app.Cfg
 	x := geo.X() + geo.Width() - int(layout.WinW)
-	if cfg.Edge == "left" {
+	if u.cfg.Edge == "left" {
 		x = geo.X()
 	}
-	y := work.Y() + int(float64(work.Height())*cfg.Position) - int(layout.WinH)/2
-	y = min(max(y, work.Y()), work.Y()+work.Height()-int(layout.WinH))
+	half := u.lay.Silhouette().H / 2
+	top, bottom := float64(work.Y())+half, float64(work.Y()+work.Height())-half
+	centre := float64(work.Y()) + float64(work.Height())*u.cfg.Position
+	centre = min(max(centre, top), max(bottom, top))
+	y := int(centre - layout.WinH/2)
 	u.win.Move(x, y)
+	u.visTop = float64(work.Y() - y)
+	u.visBottom = float64(work.Y() + work.Height() - y)
 }
 
-// update takes a fresh State and redraws; the geometry only changes when a ring appears or goes.
+// update takes fresh settings and State and redraws.
 func (u *UI) update() {
+	prev := u.cfg
+	u.cfg = u.app.Config()
 	u.state = u.app.State()
-	if len(u.lay.Cells) != len(u.state.Providers) || u.lay.Right != (u.app.Cfg.Edge != "left") {
-		u.lay = layout.Compute(len(u.state.Providers), u.app.Cfg.Edge != "left")
+	right := u.cfg.Edge != "left"
+	relaid := len(u.lay.Cells) != len(u.state.Providers) || u.lay.Right != right
+	if relaid {
+		u.lay = layout.Compute(len(u.state.Providers), right)
 		if u.hover >= len(u.state.Providers) {
 			u.hover = -1
+		}
+	}
+	if relaid || prev.Edge != u.cfg.Edge || prev.Position != u.cfg.Position {
+		u.place()
+	}
+	if prev.AutoHide != u.cfg.AutoHide {
+		u.cancelHide()
+		u.revealTo = 1
+		if u.cfg.AutoHide {
+			u.revealTo = 0
+			u.hover, u.cardModel = -1, nil
 		}
 	}
 	u.pcts = u.pcts[:0]
@@ -164,12 +224,22 @@ func (u *UI) update() {
 	u.reshape()
 	u.animate()
 	u.da.QueueDraw()
+	if u.settings != nil {
+		u.settings.refresh()
+	}
 }
 
-// reshape sets the input region to what is drawn: the pill, and the card and its tail when open.
+// tucked: auto-hide is on and the pill is in, or on its way in.
+func (u *UI) tucked() bool { return u.cfg.AutoHide && u.revealTo == 0 }
+
+// reshape sets the input region to what is there to touch: the strip while tucked, else the pill,
+// and the card and its tail when open.
 func (u *UI) reshape() {
 	rects := []layout.Rect{u.lay.Silhouette()}
-	if u.hover >= 0 {
+	switch {
+	case u.tucked():
+		rects = []layout.Rect{u.lay.Strip(stripW)}
+	case u.hover >= 0:
 		rects = append(rects, u.card, u.tail)
 	}
 	var crs []*cairo.Rectangle
@@ -183,6 +253,17 @@ func (u *UI) reshape() {
 }
 
 func (u *UI) motion(x, y float64) {
+	u.cancelHide()
+	if u.tucked() {
+		// The pointer reached the strip: slide the pill out
+		u.revealTo = 1
+		u.reshape()
+		u.animate()
+		return
+	}
+	if u.reveal < 1 {
+		return // no card until the pill is all the way out
+	}
 	if i := u.lay.CellAt(x, y); i >= 0 {
 		u.cancelCollapse()
 		if i != u.hover {
@@ -221,37 +302,97 @@ func (u *UI) cancelCollapse() {
 	}
 }
 
-// animate runs a frame timer only while something moves: a working session's spinning arc, a
-// waiting one's pulse, or a ring being pressed.
-func (u *UI) animate() {
-	moving := u.state.Aggregate == sessions.Running || u.state.Aggregate == sessions.Attention
-	for _, t := range u.pressed {
-		if time.Since(t) < pressFor {
-			moving = true
-		}
-	}
-	if !moving || u.anim != 0 {
+// scheduleHide tucks an auto-hidden notch back in once the pointer has been away a moment.
+func (u *UI) scheduleHide() {
+	if !u.cfg.AutoHide || u.revealTo == 0 || u.hide != 0 {
 		return
 	}
-	u.anim = glib.TimeoutAdd(uint(frame/time.Millisecond), func() bool {
-		still := false
-		// Only the rings that move are redrawn; the rest of the window stays as it is
-		for i, p := range u.state.Providers {
-			working := p.ID == "claude" && (u.state.Aggregate == sessions.Running || u.state.Aggregate == sessions.Attention)
-			if working || time.Since(u.pressed[p.ID]) < pressFor+frame {
-				c := u.lay.Cells[i]
-				u.da.QueueDrawArea(int(c.CX-layout.Ring/2)-4, int(c.CY-layout.Ring/2)-4, int(layout.Ring)+8, int(layout.Ring)+8)
-				still = true
-			}
-		}
-		if !still {
-			u.anim = 0
-		}
-		return still
+	u.hide = glib.TimeoutAdd(uint(hideAfter/time.Millisecond), func() bool {
+		u.hide = 0
+		u.cancelCollapse()
+		u.hover, u.cardModel = -1, nil
+		u.revealTo = 0
+		u.reshape()
+		u.animate()
+		return false
 	})
 }
 
+func (u *UI) cancelHide() {
+	if u.hide != 0 {
+		glib.SourceRemove(u.hide)
+		u.hide = 0
+	}
+}
+
+func (u *UI) working() bool {
+	return u.state.Aggregate == sessions.Running || u.state.Aggregate == sessions.Attention
+}
+
+// animate runs a frame timer only while something moves: the pill sliding, a working session's
+// arc, a waiting one's pulse, or a ring being pressed.
+func (u *UI) animate() {
+	if u.anim != 0 {
+		return
+	}
+	u.lastFrame = time.Now()
+	if !u.tick() {
+		return
+	}
+	u.anim = glib.TimeoutAdd(uint(frame/time.Millisecond), func() bool {
+		if u.tick() {
+			return true
+		}
+		u.anim = 0
+		return false
+	})
+}
+
+// tick advances one frame and redraws only what moves; false once nothing does.
+func (u *UI) tick() bool {
+	now := time.Now()
+	dt := now.Sub(u.lastFrame)
+	u.lastFrame = now
+	if u.reveal != u.revealTo {
+		step := float64(dt) / float64(revealFor)
+		if u.revealTo > u.reveal {
+			u.reveal = min(u.reveal+step, u.revealTo)
+		} else {
+			u.reveal = max(u.reveal-step, u.revealTo)
+		}
+		u.da.QueueDraw()
+		return true
+	}
+	moving := false
+	if u.reveal == 0 {
+		// Tucked: only the strip shows, and it pulses while a session waits on you
+		if u.state.Aggregate == sessions.Attention {
+			s := u.lay.Strip(stripW)
+			u.da.QueueDrawArea(int(s.X)-1, int(s.Y)-1, int(s.W)+2, int(s.H)+2)
+			moving = true
+		}
+		return moving
+	}
+	for i, p := range u.state.Providers {
+		c := u.lay.Cells[i]
+		switch {
+		case now.Sub(u.pressed[p.ID]) < pressFor+frame:
+			// A press scales the whole ring
+			u.da.QueueDrawArea(int(c.CX-layout.Ring/2)-4, int(c.CY-layout.Ring/2)-4, int(layout.Ring)+8, int(layout.Ring)+8)
+			moving = true
+		case p.ID == "claude" && u.working():
+			// Only the status arc moves, and it turns inside the ring
+			u.da.QueueDrawArea(int(c.CX)-arcBox/2, int(c.CY)-arcBox/2, arcBox, arcBox)
+			moving = true
+		}
+	}
+	return moving
+}
+
 func (u *UI) press(button uint, x, y float64) {
+	if u.reveal < 1 {
+		return
+	}
 	i := u.lay.CellAt(x, y)
 	switch button {
 	case 1:
@@ -291,6 +432,7 @@ func (u *UI) menu(provider int) {
 		}
 	}
 	m.Append(&gtk.NewSeparatorMenuItem().MenuItem)
+	add(text.T(u.lang, "settings"), u.openSettings)
 	if hooks.IsInstalled() {
 		add(text.T(u.lang, "uninstall_hooks"), func() { _, _ = hooks.Uninstall() })
 	} else {
@@ -320,8 +462,7 @@ func (u *UI) jumpTo(s sessions.Session) {
 		return
 	}
 	if s.State == sessions.Done {
-		u.app.Store.AckDone(func(x sessions.Session) bool { return x.ID == s.ID })
-		u.app.Changed()
+		u.app.AckSession(s.ID)
 	}
 }
 
@@ -344,9 +485,4 @@ func openURL(u string) {
 	if cmd.Start() == nil {
 		go cmd.Wait()
 	}
-}
-
-// Quit ends the main loop; safe from any goroutine.
-func Quit() {
-	glib.IdleAdd(gtk.MainQuit)
 }

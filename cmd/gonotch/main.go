@@ -2,7 +2,9 @@
 // edge, and whether Claude Code is working, done, or waiting on you.
 //
 //	gonotch                  run the notch
+//	gonotch demo             run it with made-up readings and sessions (no accounts needed)
 //	gonotch status [--json]  the running notch's readings, for a terminal or a status bar
+//	gonotch settings         open the running notch's settings
 //	gonotch doctor           what each provider finds on this machine
 //	gonotch install-hooks    wire Claude Code's hooks to gonotch-hook (and uninstall-hooks)
 //	gonotch autostart on|off start at login
@@ -11,6 +13,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -25,11 +29,16 @@ import (
 	"github.com/leock9/gonotch/internal/app"
 	"github.com/leock9/gonotch/internal/config"
 	"github.com/leock9/gonotch/internal/hooks"
+	"github.com/leock9/gonotch/internal/providers/demo"
 	"github.com/leock9/gonotch/internal/server"
+	"github.com/leock9/gonotch/internal/sock"
 	"github.com/leock9/gonotch/internal/text"
 	"github.com/leock9/gonotch/internal/ui"
 	"github.com/leock9/gonotch/internal/usage"
 )
+
+// version is set at build time: -ldflags "-X main.version=v1.2.3"
+var version = "dev"
 
 func main() {
 	cmd := ""
@@ -39,9 +48,15 @@ func main() {
 	var err error
 	switch cmd {
 	case "", "run":
-		err = run()
+		err = run(false)
+	case "demo":
+		err = run(true)
 	case "status":
 		err = status(len(os.Args) > 2 && os.Args[2] == "--json")
+	case "settings":
+		if !openSettings() {
+			err = fmt.Errorf("gonotch is not running")
+		}
 	case "doctor":
 		doctor()
 	case "install-hooks":
@@ -50,6 +65,8 @@ func main() {
 		err = report(hooks.Uninstall())
 	case "autostart":
 		err = autostart(os.Args[2:])
+	case "version", "--version", "-v":
+		fmt.Println("gonotch", version)
 	case "-h", "--help", "help":
 		fmt.Println(strings.TrimSpace(usageText))
 	default:
@@ -65,18 +82,31 @@ const usageText = `
 usage: gonotch [command]
 
   (none)            run the notch
+  demo              run it with made-up readings and sessions
   status [--json]   the running notch's readings
+  settings          open the running notch's settings
   doctor            what each provider finds on this machine
   install-hooks     wire Claude Code's hooks to gonotch-hook
   uninstall-hooks   remove them again
   autostart on|off  start at login
+  version           print the version
 `
 
-func run() error {
+func run(demoMode bool) error {
 	cfg := config.Load()
-	ln, err := server.Listen(cfg.Port)
+	ln, err := server.Listen(config.SocketPath())
+	if errors.Is(err, server.ErrRunning) {
+		if demoMode {
+			return errors.New("gonotch is running — quit it first (right-click › Quit) to try the demo")
+		}
+		// Launched again while it runs: bring its settings forward, the way back to a hidden notch
+		if openSettings() {
+			return nil
+		}
+		return errors.New("gonotch is already running but does not answer")
+	}
 	if err != nil {
-		return fmt.Errorf("port %d is taken — is gonotch already running? (%v)", cfg.Port, err)
+		return fmt.Errorf("cannot listen on %s: %w", config.SocketPath(), err)
 	}
 	if err := os.MkdirAll(config.StateDir(), 0o700); err == nil {
 		if f, err := os.OpenFile(filepath.Join(config.StateDir(), "gonotch.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
@@ -88,23 +118,47 @@ func run() error {
 	if os.Getenv("WAYLAND_DISPLAY") != "" && os.Getenv("DISPLAY") != "" {
 		os.Setenv("GDK_BACKEND", "x11")
 	}
+	// The notch sleeps between GTK callbacks; with one P the Go scheduler stops waking idle threads on
+	// every one of them (measured: 58% fewer wakeups while the arc turns). GOMAXPROCS still wins.
+	if os.Getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(1)
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	a := app.New(cfg)
+	if demoMode {
+		a = app.NewWith(cfg, demo.Providers())
+	}
 	a.Start(ctx)
-	go server.Serve(ctx, ln, a, cfg.Port)
+	if demoMode {
+		for _, ev := range demo.Sessions() {
+			a.Apply(ev)
+		}
+	}
+	go server.Serve(ctx, ln, a)
 	go func() {
 		<-ctx.Done()
 		ui.Quit()
 	}()
 	ui.Run(a)
+	a.Flush()
 	return nil
 }
 
+// openSettings asks a running gonotch to show its settings window.
+func openSettings() bool {
+	client := sock.Client(config.SocketPath(), 2*time.Second)
+	resp, err := client.Post(sock.URL("/settings"), "text/plain", nil)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 func status(asJSON bool) error {
-	cfg := config.Load()
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/state", cfg.Port))
+	client := sock.Client(config.SocketPath(), 2*time.Second)
+	resp, err := client.Get(sock.URL("/state"))
 	if err != nil {
 		return fmt.Errorf("gonotch is not running")
 	}
@@ -149,7 +203,7 @@ func status(asJSON bool) error {
 
 func doctor() {
 	cfg := config.Load()
-	fmt.Printf("gonotch doctor\nconfig: %s (port %d)\nstate:  %s\n\n", config.Path(), cfg.Port, config.StateDir())
+	fmt.Printf("gonotch doctor\nconfig: %s\nsocket: %s\nstate:  %s\n\n", config.Path(), config.SocketPath(), config.StateDir())
 	a := app.New(cfg)
 	for _, p := range a.Providers() {
 		fmt.Printf("%s: present=%v\n  %s\n", p.Name(), p.Present(), p.Probe())

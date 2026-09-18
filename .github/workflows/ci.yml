@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Everything but the GTK package, so no system libraries are needed here
+      - run: go vet $(go list ./... | grep -v -e '/internal/ui$' -e '/cmd/gonotch$')
+      - run: make test
+
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-3-dev libgirepository1.0-dev
+      - run: make build
+      - run: CGO_LDFLAGS=-B/usr/bin/ go vet ./internal/ui/ ./cmd/gonotch/

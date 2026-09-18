@@ -69,6 +69,14 @@ func Compute(n int, right bool) Layout {
 	return l
 }
 
+// Strip is what an auto-hidden notch leaves on the edge: a thin bar the height of the pill.
+func (l Layout) Strip(width float64) Rect {
+	if l.Right {
+		return Rect{WinW - width, l.Pill.Y, width, l.Pill.H}
+	}
+	return Rect{0, l.Pill.Y, width, l.Pill.H}
+}
+
 // Silhouette is the pill plus its fillets: what the window must catch clicks on when closed.
 func (l Layout) Silhouette() Rect {
 	return Rect{l.Pill.X, l.Pill.Y - Fillet, l.Pill.W, l.Pill.H + 2*Fillet}
@@ -84,14 +92,17 @@ func (l Layout) CellAt(x, y float64) int {
 	return -1
 }
 
-// Card places a card of height h beside cell i: centred on the ring, kept inside the window.
-func (l Layout) Card(i int, h float64) (card, tail Rect) {
+// Card places a card of height h beside cell i: centred on the ring, and kept between top and
+// bottom — the part of the window that is on screen, since the window may hang off it when the
+// pill sits near an end of the edge.
+func (l Layout) Card(i int, h, top, bottom float64) (card, tail Rect) {
 	if i < 0 || i >= len(l.Cells) {
 		return Rect{}, Rect{}
 	}
 	c := l.Cells[i]
-	h = min(h, WinH)
-	y := min(max(c.CY-h/2, 0), WinH-h)
+	top, bottom = max(top, 0), min(bottom, WinH)
+	h = min(h, bottom-top)
+	y := min(max(c.CY-h/2, top), bottom-h)
 	x := l.Pill.X - CardGap - CardW
 	tail = Rect{l.Pill.X - CardGap - 1, c.CY - TailH/2, CardGap + 2, TailH}
 	if !l.Right {

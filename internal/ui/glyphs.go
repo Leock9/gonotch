@@ -19,9 +19,9 @@ import (
 //go:embed glyphs/*.svg
 var builtinGlyphs embed.FS
 
-// glyphCache renders each mark once per size, at the monitor's scale. The marks are drawn in
-// currentColor, which becomes the notch's off-white before rendering. A file in
-// ~/.config/gonotch/glyphs/<provider>.svg replaces the built-in one.
+// glyphCache renders each mark once per size and colour, at the monitor's scale. The marks are drawn
+// in currentColor, which becomes the colour asked for. A file in ~/.config/gonotch/glyphs/<provider>.svg
+// replaces the built-in one.
 type glyphCache struct {
 	scale int
 	m     map[string]*gdkpixbuf.Pixbuf
@@ -39,8 +39,11 @@ func glyphSVG(id string) ([]byte, bool) {
 	return raw, err == nil
 }
 
-func (g *glyphCache) get(id string, size int) *gdkpixbuf.Pixbuf {
-	key := fmt.Sprintf("%s@%d", id, size)
+// notchInk is the marks' colour on the notch, which is always black whatever the desktop theme.
+const notchInk = "#e8e8ea"
+
+func (g *glyphCache) get(id string, size int, color string) *gdkpixbuf.Pixbuf {
+	key := fmt.Sprintf("%s@%d%s", id, size, color)
 	if pb, ok := g.m[key]; ok {
 		return pb
 	}
@@ -49,7 +52,7 @@ func (g *glyphCache) get(id string, size int) *gdkpixbuf.Pixbuf {
 	if !ok {
 		return nil
 	}
-	svg := strings.ReplaceAll(string(raw), "currentColor", "#e8e8ea")
+	svg := strings.ReplaceAll(string(raw), "currentColor", color)
 	loader, err := gdkpixbuf.NewPixbufLoaderWithType("svg")
 	if err != nil {
 		return nil
@@ -69,7 +72,7 @@ func (g *glyphCache) get(id string, size int) *gdkpixbuf.Pixbuf {
 
 // draw paints a mark centred on (cx, cy), size logical pixels square.
 func (g *glyphCache) draw(cr *cairo.Context, id string, cx, cy, size, alpha float64) {
-	pb := g.get(id, int(size))
+	pb := g.get(id, int(size), notchInk)
 	if pb == nil {
 		return
 	}

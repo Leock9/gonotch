@@ -104,20 +104,10 @@ func (w *Watcher) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case ev, ok := <-fw.Events:
-			if !ok {
+		case <-tick.C:
+			if !w.take(fw) {
 				return
 			}
-			if ev.Op&fsnotify.Create != 0 {
-				if st, err := os.Stat(ev.Name); err == nil && st.IsDir() {
-					_ = fw.Add(ev.Name)
-				}
-			}
-			if IsTranscript(ev.Name) && ev.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				w.dirty[ev.Name] = true
-			}
-		case <-fw.Errors:
-		case <-tick.C:
 			now := time.Now()
 			for p := range w.dirty {
 				if now.Sub(w.lastIngest[p]) >= ingestGap {
@@ -138,6 +128,31 @@ func (w *Watcher) Run(ctx context.Context) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// take drains the events queued since the last tick. Reading in batches is the point: while nobody
+// reads, the kernel folds a transcript's repeated writes into one event, where reading each as it came
+// cost about six wakeups per write. False once the watcher is closed.
+func (w *Watcher) take(fw *fsnotify.Watcher) bool {
+	for {
+		select {
+		case ev, ok := <-fw.Events:
+			if !ok {
+				return false
+			}
+			if ev.Op&fsnotify.Create != 0 {
+				if st, err := os.Stat(ev.Name); err == nil && st.IsDir() {
+					_ = fw.Add(ev.Name)
+				}
+			}
+			if IsTranscript(ev.Name) && ev.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				w.dirty[ev.Name] = true
+			}
+		case <-fw.Errors:
+		default:
+			return true
 		}
 	}
 }

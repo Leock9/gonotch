@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,5 +55,40 @@ func TestOnlyRealTranscripts(t *testing.T) {
 		if IsTranscript(p) != want {
 			t.Errorf("IsTranscript(%q) != %v", p, want)
 		}
+	}
+}
+
+func TestTheWatcherStillSeesAppendsWhenReadingInBatches(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(proj, "s1.jsonl")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	events := make(chan Event, 64)
+	w := &Watcher{Root: root, Apply: func(ev Event) { events <- ev }}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for range 20 { // a burst of writes, as a streaming session makes
+		f.WriteString(`{"type":"user","sessionId":"s1","cwd":"/p","message":{"content":"go"}}` + "\n")
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case ev := <-events:
+		if ev.Kind != EvRunning || ev.SessionID != "s1" {
+			t.Fatalf("got %+v", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the burst was never seen")
 	}
 }

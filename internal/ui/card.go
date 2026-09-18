@@ -176,7 +176,7 @@ func (u *UI) buildCard() {
 	}
 	m.height = y + layout.CardPad - 8
 	u.cardModel = m
-	u.card, u.tail = u.lay.Card(u.hover, m.height)
+	u.card, u.tail = u.lay.Card(u.hover, m.height, u.visTop, u.visBottom)
 }
 
 func sessionDetail(s sessions.Session) string {

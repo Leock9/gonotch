@@ -1,22 +1,25 @@
-// Package server is the local HTTP endpoint on 127.0.0.1: the hook binary posts Claude Code's hook
-// events to it, and `gonotch status` (or a status bar) reads the current state from it.
+// Package server is the app's local HTTP endpoint, on a Unix socket in a directory only this user
+// can enter: the hook binary posts Claude Code's hook events to it, and `gonotch status` (or a status
+// bar) reads the current state from it. No other local account and no browser page can reach it.
 //
 //	POST /event            body = the hook's stdin JSON; ?pid= the process that ran the hook
 //	GET  /state            the same State the notch draws, as JSON
 //	POST /refresh          ?provider=claude|codex|cursor, or every provider without it
-//
-// Only loopback callers that are not a browser page get through: the Host must name the loopback
-// port (DNS rebinding), and any request carrying an Origin is refused (a page's cross-site POST).
+//	POST /settings         opens the settings window
 package server
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/leock9/gonotch/internal/app"
@@ -25,11 +28,10 @@ import (
 
 const maxBody = 256 * 1024
 
-func Handler(a *app.App, port int) http.Handler {
-	allowedHosts := map[string]bool{
-		fmt.Sprintf("127.0.0.1:%d", port): true,
-		fmt.Sprintf("localhost:%d", port): true,
-	}
+// ErrRunning: another instance holds the socket.
+var ErrRunning = errors.New("gonotch is already running")
+
+func Handler(a *app.App) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /event", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, maxBody))
@@ -51,22 +53,67 @@ func Handler(a *app.App, port int) http.Handler {
 		a.Refresh(r.URL.Query().Get("provider"))
 		fmt.Fprintln(w, "ok")
 	})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !allowedHosts[r.Host] || r.Header.Get("Origin") != "" {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		mux.ServeHTTP(w, r)
+	mux.HandleFunc("POST /settings", func(w http.ResponseWriter, r *http.Request) {
+		a.RequestSettings()
+		fmt.Fprintln(w, "ok")
 	})
+	return mux
 }
 
-// Listen binds the loopback port; an error usually means another instance already runs.
-func Listen(port int) (net.Listener, error) {
-	return net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+// listener is the socket plus the lock that makes this instance its only owner.
+type listener struct {
+	net.Listener
+	lock *os.File
 }
 
-func Serve(ctx context.Context, ln net.Listener, a *app.App, port int) {
-	srv := &http.Server{Handler: Handler(a, port), ReadHeaderTimeout: 5 * time.Second}
+func (l *listener) Close() error {
+	err := l.Listener.Close() // also unlinks the socket file
+	l.lock.Close()
+	return err
+}
+
+// Listen claims the socket at path. An exclusive lock beside it decides who owns it — two hooks
+// starting the app at the same moment must not both get past a check-then-bind — and a socket left
+// by a crash is replaced by whoever takes the lock.
+func Listen(path string) (net.Listener, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	// MkdirAll leaves an existing directory's mode alone; this one must admit nobody else
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrRunning
+		}
+		return nil, err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		lock.Close()
+		return nil, err
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		lock.Close()
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()
+		lock.Close()
+		return nil, err
+	}
+	return &listener{Listener: ln, lock: lock}, nil
+}
+
+func Serve(ctx context.Context, ln net.Listener, a *app.App) {
+	srv := &http.Server{Handler: Handler(a), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()

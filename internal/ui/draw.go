@@ -56,14 +56,63 @@ func (u *UI) draw(cr *cairo.Context) {
 	cr.SetSourceRGBA(0, 0, 0, 0)
 	cr.Paint()
 	cr.SetOperator(cairo.OperatorOver)
-	u.drawPill(cr)
-	now := time.Now()
-	for i, p := range u.state.Providers {
-		u.drawCell(cr, i, p, now)
+	now := u.clock()
+	if u.reveal < 1 {
+		u.drawStrip(cr, 1-u.reveal, now)
 	}
-	if u.hover >= 0 && u.cardModel != nil {
+	if u.reveal > 0 {
+		// Sliding in and out: the pill moves past the screen edge, where the window ends
+		cr.Save()
+		dx := (1 - u.reveal) * (layout.PillW + 4)
+		if !u.lay.Right {
+			dx = -dx
+		}
+		cr.Translate(dx, 0)
+		u.drawPill(cr)
+		for i, p := range u.state.Providers {
+			u.drawCell(cr, i, p, now)
+		}
+		cr.Restore()
+	}
+	if u.hover >= 0 && u.cardModel != nil && u.reveal == 1 {
 		u.drawCard(cr)
 	}
+}
+
+// drawStrip is the tucked notch: a thin bar on the edge whose inner line carries the fullest ring's
+// colour, or a yellow pulse while a Claude session waits on you.
+func (u *UI) drawStrip(cr *cairo.Context, alpha float64, now time.Time) {
+	s := u.lay.Strip(stripW)
+	// Drawn wider than the window so the corners against the screen edge fall outside it
+	body := layout.Rect{X: s.X, Y: s.Y, W: s.W + 6, H: s.H}
+	if !u.lay.Right {
+		body.X -= 6
+	}
+	roundedRect(cr, body, 4)
+	cr.SetSourceRGBA(0, 0, 0, alpha)
+	cr.FillPreserve()
+	set(cr, colStroke, alpha)
+	cr.SetLineWidth(1)
+	cr.Stroke()
+
+	line, lineAlpha := colTrack, 1.0
+	fullest := -1.0
+	for _, p := range u.state.Providers {
+		if h, ok := p.HeadlineWindow(); ok && h.Used > fullest {
+			fullest = h.Used
+		}
+	}
+	if fullest >= 0 {
+		line = tone(fullest)
+		lineAlpha = 0.8
+	}
+	if u.state.Aggregate == sessions.Attention {
+		secs := float64(now.UnixMilli()%100000) / 1000
+		line, lineAlpha = colWatch, 0.55+0.45*math.Sin(2*math.Pi*secs/1.4)
+	}
+	roundedRect(cr, layout.Rect{X: s.X + s.W/2 - 1.25, Y: s.Y + 10, W: 2.5, H: s.H - 20}, 1.2)
+	set(cr, line, lineAlpha*alpha)
+	cr.Fill()
 }
 
 // pillPath traces the silhouette: the concave fillet above, the pill with its outer corners
@@ -159,7 +208,7 @@ func (u *UI) drawCell(cr *cairo.Context, i int, p app.ProviderState, now time.Ti
 		secs := float64(now.UnixMilli()%100000) / 1000
 		switch u.state.Aggregate {
 		case sessions.Running:
-			arc(cr, c.CX, c.CY, 19, top+2*math.Pi*secs/1.2, 0.28, 2.5, colInk, 1)
+			arc(cr, c.CX, c.CY, 19, top+2*math.Pi*secs/1.4, 0.28, 2.5, colInk, 1)
 		case sessions.Attention:
 			arc(cr, c.CX, c.CY, 19, 0, 1, 2.5, colWatch, 0.45+0.45*math.Sin(2*math.Pi*secs/1.4))
 		}

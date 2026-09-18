@@ -15,15 +15,16 @@ import (
 	"time"
 
 	"github.com/leock9/gonotch/internal/config"
+	"github.com/leock9/gonotch/internal/sock"
 )
 
 const maxStdin = 256 * 1024
 
-var client = &http.Client{Timeout: time.Second}
+var client = sock.Client(config.SocketPath(), time.Second)
 
 func main() {
 	body, _ := io.ReadAll(io.LimitReader(os.Stdin, maxStdin))
-	url := fmt.Sprintf("http://127.0.0.1:%d/event?pid=%d", config.Load().Port, os.Getppid())
+	url := sock.URL(fmt.Sprintf("/event?pid=%d", os.Getppid()))
 	if send(url, body) {
 		return
 	}

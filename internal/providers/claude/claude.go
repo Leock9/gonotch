@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -308,7 +309,7 @@ func parseResponse(raw []byte) ([]usage.Window, error) {
 		dup := false
 		for _, w := range out {
 			sameReading := !reset.IsZero() && w.ResetsAt.Unix() == reset.Unix() && abs(w.Used-used) < 0.005
-			if contains(f.aliases, w.ID) || w.Label == label || sameReading {
+			if slices.Contains(f.aliases, w.ID) || w.Label == label || sameReading {
 				dup = true
 				break
 			}
@@ -434,13 +435,4 @@ func abs(v float64) float64 {
 		return -v
 	}
 	return v
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
