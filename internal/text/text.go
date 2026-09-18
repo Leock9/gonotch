@@ -38,6 +38,7 @@ var table = map[string][2]string{ // key → {pt, en}
 	"install_hooks":   {"Instalar hooks do Claude Code", "Install Claude Code hooks"},
 	"uninstall_hooks": {"Remover hooks do Claude Code", "Remove Claude Code hooks"},
 	"quit":            {"Sair do gonotch", "Quit gonotch"},
+	"open_log":        {"Abrir log", "Open log"},
 	"resetting":       {"Reiniciando…", "Resetting…"},
 	"resets_in":       {"Reinicia em %s", "Resets in %s"},
 	"resets_at":       {"Reinicia %s", "Resets %s"},

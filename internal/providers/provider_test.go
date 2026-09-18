@@ -1,7 +1,10 @@
 package providers
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,5 +44,32 @@ func TestADisabledProviderIsNotPolledUntilSwitchedBackOn(t *testing.T) {
 	}
 	if f.polls.Load() != 1 {
 		t.Fatalf("switching on should poll once, got %d", f.polls.Load())
+	}
+}
+
+func TestAFailureIsLoggedOnceAndTheRecoveryToo(t *testing.T) {
+	var buf bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	r := NewRunner(&fake{}, func(usage.Snapshot) {})
+	for _, s := range []usage.Snapshot{
+		{Provider: "fake", Status: usage.StatusOK},
+		{Provider: "fake", Status: usage.StatusError, Note: "HTTP 500"},
+		{Provider: "fake", Status: usage.StatusError, Note: "HTTP 500"},
+		{Provider: "fake", Status: usage.StatusStale, Note: "HTTP 502"},
+		{Provider: "fake", Status: usage.StatusOK},
+		{Provider: "fake", Status: usage.StatusOK},
+	} {
+		r.report(s)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	want := []string{"level=ERROR", "level=WARN", "level=INFO"}
+	if len(lines) != len(want) {
+		t.Fatalf("logged %d lines, want %d:\n%s", len(lines), len(want), buf.String())
+	}
+	for i, w := range want {
+		if !strings.Contains(lines[i], w) || !strings.Contains(lines[i], "provider=fake") {
+			t.Errorf("line %d = %q, want %s", i, lines[i], w)
+		}
 	}
 }

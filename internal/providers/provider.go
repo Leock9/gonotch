@@ -4,6 +4,7 @@ package providers
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -39,6 +40,8 @@ type Runner struct {
 	// Enabled, when set and false, pauses polling: a ring switched off costs no requests. A refresh
 	// request wakes the runner to look again.
 	Enabled func() bool
+
+	failure string // the failure last logged, "" while readings go through
 }
 
 func NewRunner(p Provider, publish func(usage.Snapshot)) *Runner {
@@ -83,9 +86,33 @@ func (r *Runner) Run(ctx context.Context, prev usage.Snapshot) {
 		next, after := r.P.Poll(ctx, prev)
 		next.Provider = r.P.ID()
 		r.Publish(next)
+		r.report(next)
 		prev = next
 		if !wait(ctx, after, r.Refresh) {
 			return
+		}
+	}
+}
+
+// report logs a failure once: the same one on every poll is one line, not one every five minutes,
+// and a reading that goes through again after one is one more.
+func (r *Runner) report(s usage.Snapshot) {
+	switch s.Status {
+	case usage.StatusError, usage.StatusStale, usage.StatusNeedsAuth:
+		failure := string(s.Status) + ": " + s.Note
+		if failure == r.failure {
+			return
+		}
+		r.failure = failure
+		level := slog.LevelWarn
+		if s.Status == usage.StatusError {
+			level = slog.LevelError
+		}
+		slog.Log(context.Background(), level, "reading failed", "provider", s.Provider, "status", s.Status, "note", s.Note)
+	case usage.StatusOK, usage.StatusNone:
+		if r.failure != "" {
+			r.failure = ""
+			slog.Info("reading again", "provider", s.Provider)
 		}
 	}
 }

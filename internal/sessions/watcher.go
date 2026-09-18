@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +64,7 @@ type Watcher struct {
 	tracks     map[string]*track
 	lastIngest map[string]time.Time
 	dirty      map[string]bool
+	lastLogged string
 }
 
 func NewWatcher(apply func(Event)) *Watcher {
@@ -82,16 +86,17 @@ func (w *Watcher) Run(ctx context.Context) {
 	w.dirty = map[string]bool{}
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
+		slog.Error("transcript watcher off: sessions show only through the hooks", "err", err)
 		return
 	}
 	defer fw.Close()
 	// fsnotify is not recursive: the root and each project directory are watched, new ones as they appear
 	watchTree := func() {
-		_ = fw.Add(w.Root)
+		w.watch(fw, w.Root)
 		entries, _ := os.ReadDir(w.Root)
 		for _, e := range entries {
 			if e.IsDir() {
-				_ = fw.Add(filepath.Join(w.Root, e.Name()))
+				w.watch(fw, filepath.Join(w.Root, e.Name()))
 			}
 		}
 	}
@@ -144,17 +149,37 @@ func (w *Watcher) take(fw *fsnotify.Watcher) bool {
 			}
 			if ev.Op&fsnotify.Create != 0 {
 				if st, err := os.Stat(ev.Name); err == nil && st.IsDir() {
-					_ = fw.Add(ev.Name)
+					w.watch(fw, ev.Name)
 				}
 			}
 			if IsTranscript(ev.Name) && ev.Op&(fsnotify.Write|fsnotify.Create) != 0 {
 				w.dirty[ev.Name] = true
 			}
-		case <-fw.Errors:
+		case err := <-fw.Errors:
+			w.logOnce("transcript watcher", "err", err)
 		default:
 			return true
 		}
 	}
+}
+
+// watch adds a directory to the watch list. A missing root is normal (Claude Code not used yet); the
+// failure worth a line is running out of inotify watches, which silently stops sessions updating.
+func (w *Watcher) watch(fw *fsnotify.Watcher, dir string) {
+	if err := fw.Add(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.logOnce("cannot watch a transcript directory (fs.inotify.max_user_watches?)", "dir", dir, "err", err)
+	}
+}
+
+// logOnce logs a watcher failure unless the last one logged was the same message and error: one
+// that recurs on every rescan or for every directory is one line.
+func (w *Watcher) logOnce(msg string, args ...any) {
+	key := fmt.Sprint(msg, args[len(args)-1])
+	if key == w.lastLogged {
+		return
+	}
+	w.lastLogged = key
+	slog.Warn(msg, args...)
 }
 
 // rescan ingests every transcript written since it was last read, within the freshness window.

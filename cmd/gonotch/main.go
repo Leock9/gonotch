@@ -6,6 +6,7 @@
 //	gonotch status [--json]  the running notch's readings, for a terminal or a status bar
 //	gonotch settings         open the running notch's settings
 //	gonotch doctor           what each provider finds on this machine
+//	gonotch log              the end of the log, where errors are kept
 //	gonotch install-hooks    wire Claude Code's hooks to gonotch-hook (and uninstall-hooks)
 //	gonotch autostart on|off start at login
 package main
@@ -16,7 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ import (
 	"github.com/leock9/gonotch/internal/app"
 	"github.com/leock9/gonotch/internal/config"
 	"github.com/leock9/gonotch/internal/hooks"
+	"github.com/leock9/gonotch/internal/logs"
 	"github.com/leock9/gonotch/internal/providers/demo"
 	"github.com/leock9/gonotch/internal/server"
 	"github.com/leock9/gonotch/internal/sock"
@@ -59,6 +61,8 @@ func main() {
 		}
 	case "doctor":
 		doctor()
+	case "log":
+		err = showLog()
 	case "install-hooks":
 		err = report(hooks.Install(ui.HookBinary()))
 	case "uninstall-hooks":
@@ -86,6 +90,7 @@ usage: gonotch [command]
   status [--json]   the running notch's readings
   settings          open the running notch's settings
   doctor            what each provider finds on this machine
+  log               the end of the log, where errors are kept
   install-hooks     wire Claude Code's hooks to gonotch-hook
   uninstall-hooks   remove them again
   autostart on|off  start at login
@@ -105,14 +110,20 @@ func run(demoMode bool) error {
 		}
 		return errors.New("gonotch is already running but does not answer")
 	}
+	// The log is set up past the check above: a second instance that only brings the settings forward
+	// has nothing to say in it
+	if lf, lerr := logs.Setup(); lerr == nil {
+		defer lf.Close()
+	} else {
+		fmt.Fprintln(os.Stderr, "gonotch: no log file:", lerr)
+	}
 	if err != nil {
+		slog.Error("cannot listen", "socket", config.SocketPath(), "err", err)
 		return fmt.Errorf("cannot listen on %s: %w", config.SocketPath(), err)
 	}
-	if err := os.MkdirAll(config.StateDir(), 0o700); err == nil {
-		if f, err := os.OpenFile(filepath.Join(config.StateDir(), "gonotch.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
-			log.SetOutput(f)
-		}
-	}
+	slog.Info("started", "version", version, "pid", os.Getpid(), "demo", demoMode,
+		"session", os.Getenv("XDG_SESSION_TYPE"), "wayland", os.Getenv("WAYLAND_DISPLAY") != "")
+	defer slog.Info("quit")
 	// Under Wayland the notch runs through XWayland: only an X11 window can place itself on the
 	// screen edge and stay above the rest (a layer-shell backend would lift this)
 	if os.Getenv("WAYLAND_DISPLAY") != "" && os.Getenv("DISPLAY") != "" {
@@ -207,13 +218,30 @@ func status(asJSON bool) error {
 
 func doctor() {
 	cfg := config.Load()
-	fmt.Printf("gonotch doctor\nconfig: %s\nsocket: %s\nstate:  %s\n\n", config.Path(), config.SocketPath(), config.StateDir())
+	fmt.Printf("gonotch doctor\nconfig: %s\nsocket: %s\nstate:  %s\nlog:    %s\n\n", config.Path(), config.SocketPath(), config.StateDir(), logs.Path())
 	a := app.New(cfg)
 	for _, p := range a.Providers() {
 		fmt.Printf("%s: present=%v\n  %s\n", p.Name(), p.Present(), p.Probe())
 	}
 	fmt.Printf("\nClaude Code hooks: installed=%v (%s)\nhook binary: %s\n", hooks.IsInstalled(), hooks.SettingsPath(), ui.HookBinary())
 	fmt.Printf("session: XDG_SESSION_TYPE=%s WAYLAND_DISPLAY=%s DISPLAY=%s\n", os.Getenv("XDG_SESSION_TYPE"), os.Getenv("WAYLAND_DISPLAY"), os.Getenv("DISPLAY"))
+}
+
+// showLog prints the end of the log: what to attach to an issue.
+func showLog() error {
+	lines, err := logs.Tail(logs.Path(), 50)
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Println("nothing logged yet:", logs.Path())
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	fmt.Fprintf(os.Stderr, "\n(the last %d lines of %s; the run before a rotation is in %[2]s.1)\n", len(lines), logs.Path())
+	return nil
 }
 
 func report(msg string, err error) error {

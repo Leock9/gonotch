@@ -114,6 +114,7 @@ curl -fsSL https://raw.githubusercontent.com/leock9/gonotch/main/scripts/install
 | `gonotch settings` | Open the settings window |
 | `gonotch status [--json]` | The readings in a terminal, or as JSON for a status bar (Waybar, Polybar, tmux) |
 | `gonotch doctor` | What each provider finds on this machine |
+| `gonotch log` | The end of the log, where errors are kept |
 | `gonotch install-hooks` / `uninstall-hooks` | Wire Claude Code's hooks to `gonotch-hook`, or remove them |
 | `gonotch autostart on\|off` | An XDG autostart entry |
 | `gonotch version` | The installed version |
@@ -121,6 +122,24 @@ curl -fsSL https://raw.githubusercontent.com/leock9/gonotch/main/scripts/install
 `install-hooks` edits `~/.claude/settings.json` in place — only its own entries, keeping the rest of
 the file's order and format — and writes a backup first. Without hooks, session states are inferred
 from Claude Code's transcripts.
+
+</details>
+
+<details>
+<summary>Logs</summary>
+
+Errors go to `~/.local/state/gonotch/gonotch.log` (`$XDG_STATE_HOME/gonotch/`): a provider that
+could not read and when it read again, a hook that could not reach the app, a failed Claude token
+renewal, GTK's own warnings, and the stack trace of a crash. Each failure is one line, however many
+polls repeat it. The file is kept across runs and moves to `gonotch.log.1` past 1 MiB, so it never
+takes more than about 2 MiB. Nothing in it carries a credential.
+
+```bash
+gonotch log                                   # the last 50 lines — attach them to an issue
+tail -f ~/.local/state/gonotch/gonotch.log    # follow it
+```
+
+The notch's right-click menu has **Open log** too.
 
 </details>
 

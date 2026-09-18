@@ -20,6 +20,7 @@ gonotch demo # or bin/gonotch demo: the UI with made-up data, no accounts needed
 | `internal/providers/*` | One package per vendor; `demo` holds the made-up data |
 | `internal/sessions` | Claude Code session states, from hooks and transcripts |
 | `internal/app`, `internal/server` | The glue, and the Unix-socket endpoint |
+| `internal/logs` | The log file: `~/.local/state/gonotch/gonotch.log`, rotated at 1 MiB |
 | `internal/ui` | GTK 3 + Cairo; the only package with cgo |
 
 ## Guidelines
@@ -28,6 +29,9 @@ gonotch demo # or bin/gonotch demo: the UI with made-up data, no accounts needed
 - **A provider borrows, never manages.** Read the credential the vendor's own tool keeps; never
   write, refresh or log it. On failure keep the last reading marked stale — never invent a number.
 - **Respect rate limits.** Back off on 429 and honour `Retry-After`.
+- **Errors go to the log, not to stderr.** Use `log/slog` (`internal/logs` makes it the app's
+  log file): Error for what stops a feature, Warn for what degrades one, and a failure that repeats
+  logged once. A provider's failures are already logged by its `Runner` from the snapshot's note.
 - **Test behaviour, not wiring.** New logic in the core comes with a test; `go test -race` must pass.
 - **UI changes:** attach a screenshot, and run `make screenshots` if the README's images change.
   It renders them in a container from the real drawing code (`internal/ui/snapshot_test.go`).

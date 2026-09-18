@@ -2,7 +2,9 @@ package ui
 
 import (
 	"embed"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,24 +49,28 @@ func (g *glyphCache) get(id string, size int, color string) *gdkpixbuf.Pixbuf {
 	if pb, ok := g.m[key]; ok {
 		return pb
 	}
-	g.m[key] = nil // a mark that fails to load is not retried every frame
+	g.m[key] = nil // a mark that fails to load is not retried every frame, nor logged again
+	fail := func(err error) *gdkpixbuf.Pixbuf {
+		slog.Warn("provider mark not drawn", "provider", id, "err", err)
+		return nil
+	}
 	raw, ok := glyphSVG(id)
 	if !ok {
-		return nil
+		return fail(errors.New("no SVG for it"))
 	}
 	svg := strings.ReplaceAll(string(raw), "currentColor", color)
 	loader, err := gdkpixbuf.NewPixbufLoaderWithType("svg")
 	if err != nil {
-		return nil
+		return fail(fmt.Errorf("%w (is librsvg2-common installed?)", err))
 	}
 	px := size * g.scale
 	loader.SetSize(px, px)
-	if loader.Write([]byte(svg)) != nil {
+	if err := loader.Write([]byte(svg)); err != nil {
 		_ = loader.Close()
-		return nil
+		return fail(err)
 	}
-	if loader.Close() != nil {
-		return nil
+	if err := loader.Close(); err != nil {
+		return fail(err)
 	}
 	g.m[key] = loader.Pixbuf()
 	return g.m[key]

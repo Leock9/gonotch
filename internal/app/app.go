@@ -4,7 +4,7 @@ package app
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
@@ -129,7 +129,7 @@ func (a *App) Flush() {
 		return
 	}
 	if err := config.Save(cfg); err != nil {
-		log.Printf("saving settings: %v", err)
+		slog.Error("saving settings", "path", config.Path(), "err", err)
 	}
 }
 
@@ -178,7 +178,9 @@ func (a *App) publish(s usage.Snapshot) {
 	a.snaps[s.Provider] = s
 	a.mu.Unlock()
 	if s.Status != usage.StatusAbsent && s.Status != usage.StatusLoading {
-		_ = usage.Save(snapshotPath(s.Provider), s)
+		if err := usage.Save(snapshotPath(s.Provider), s); err != nil {
+			slog.Warn("saving reading", "provider", s.Provider, "err", err)
+		}
 	}
 	a.notify()
 }

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -363,9 +364,17 @@ func (r *renewer) maybeRenew(ctx context.Context, p *Provider, cred credential) 
 		r.failures = 0
 	}
 	r.attemptedFor, r.lastAttempt = cred.expiresAt, now
-	runRenewal(ctx, cli)
+	err := runRenewal(ctx, cli)
 	after, ok := p.readCredential()
-	return ok && after.expiresAt.After(cred.expiresAt)
+	renewed := ok && after.expiresAt.After(cred.expiresAt)
+	if !renewed {
+		args := []any{"cli", cli, "attempt", r.failures + 1}
+		if err != nil {
+			args = append(args, "err", err)
+		}
+		slog.Warn("token not renewed by `claude -p`", args...)
+	}
+	return renewed
 }
 
 // findCLI finds the standalone Claude Code: the native installer's ~/.local/bin, the older
@@ -388,7 +397,7 @@ func (p *Provider) findCLI() string {
 // runRenewal runs `claude -p` with a null stdin: it starts up (renewing an aged token) and exits for
 // want of a prompt, with no conversation and no transcript. Its output goes nowhere, since a token
 // could in principle be echoed into it.
-func runRenewal(ctx context.Context, cli string) {
+func runRenewal(ctx context.Context, cli string) error {
 	ctx, cancel := context.WithTimeout(ctx, renewTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cli, "-p")
@@ -404,7 +413,7 @@ func runRenewal(ctx context.Context, cli string) {
 	// Its own process group, so a timeout takes down whatever it started too
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	_ = cmd.Run()
+	return cmd.Run()
 }
 
 func (p *Provider) Probe() string {

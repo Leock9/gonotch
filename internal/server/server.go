@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -118,7 +119,9 @@ func Serve(ctx context.Context, ln net.Listener, a *app.App) {
 		<-ctx.Done()
 		_ = srv.Close()
 	}()
-	_ = srv.Serve(ln)
+	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("local server stopped: hooks and `gonotch status` cannot reach the app", "err", err)
+	}
 }
 
 // hookKinds maps Claude Code's hook_event_name to a session event.

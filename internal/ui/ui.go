@@ -5,6 +5,7 @@ package ui
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ import (
 	"github.com/leock9/gonotch/internal/app"
 	"github.com/leock9/gonotch/internal/config"
 	"github.com/leock9/gonotch/internal/hooks"
+	"github.com/leock9/gonotch/internal/logs"
 	"github.com/leock9/gonotch/internal/sessions"
 	"github.com/leock9/gonotch/internal/text"
 	"github.com/leock9/gonotch/internal/ui/layout"
@@ -434,13 +436,22 @@ func (u *UI) menu(provider int) {
 	m.Append(&gtk.NewSeparatorMenuItem().MenuItem)
 	add(text.T(u.lang, "settings"), u.openSettings)
 	if hooks.IsInstalled() {
-		add(text.T(u.lang, "uninstall_hooks"), func() { _, _ = hooks.Uninstall() })
+		add(text.T(u.lang, "uninstall_hooks"), func() { logHooks(hooks.Uninstall()) })
 	} else {
-		add(text.T(u.lang, "install_hooks"), func() { _, _ = hooks.Install(HookBinary()) })
+		add(text.T(u.lang, "install_hooks"), func() { logHooks(hooks.Install(HookBinary())) })
 	}
+	add(text.T(u.lang, "open_log"), func() { openURL(logs.Path()) })
 	add(text.T(u.lang, "quit"), gtk.MainQuit)
 	m.ShowAll()
 	m.PopupAtPointer(nil)
+}
+
+func logHooks(msg string, err error) {
+	if err != nil {
+		slog.Error("Claude Code hooks", "err", err)
+		return
+	}
+	slog.Info(msg)
 }
 
 // sessionAt is the session row of the open card under a window point.
@@ -458,7 +469,11 @@ func (u *UI) sessionAt(x, y float64) (sessions.Session, bool) {
 
 // jumpTo brings the session's terminal forward; looking at a finished session acknowledges it.
 func (u *UI) jumpTo(s sessions.Session) {
-	if s.PID == 0 || !x11.FocusProcess(s.PID) {
+	if s.PID == 0 {
+		return
+	}
+	if !x11.FocusProcess(s.PID) {
+		slog.Warn("no terminal window found for the session", "pid", s.PID, "session", s.ID)
 		return
 	}
 	if s.State == sessions.Done {
@@ -482,7 +497,9 @@ func HookBinary() string {
 
 func openURL(u string) {
 	cmd := exec.Command("xdg-open", u)
-	if cmd.Start() == nil {
-		go cmd.Wait()
+	if err := cmd.Start(); err != nil {
+		slog.Warn("xdg-open", "url", u, "err", err)
+		return
 	}
+	go cmd.Wait()
 }
