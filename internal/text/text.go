@@ -97,6 +97,9 @@ var labelsPT = map[string]string{
 	"API usage":             "Uso de API",
 	"On demand":             "Sob demanda",
 	"Code review":           "Revisão de código",
+	"Premium requests":      "Requisições premium",
+	"Chat requests":         "Requisições de chat",
+	"Code completions":      "Completions de código",
 }
 
 var lengthLabel = regexp.MustCompile(`^(\d+)([mhd]) limit$`)

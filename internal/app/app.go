@@ -13,6 +13,7 @@ import (
 	"github.com/leock9/gonotch/internal/providers"
 	"github.com/leock9/gonotch/internal/providers/claude"
 	"github.com/leock9/gonotch/internal/providers/codex"
+	"github.com/leock9/gonotch/internal/providers/copilot"
 	"github.com/leock9/gonotch/internal/providers/cursor"
 	"github.com/leock9/gonotch/internal/sessions"
 	"github.com/leock9/gonotch/internal/usage"
@@ -59,7 +60,7 @@ type App struct {
 
 func New(cfg config.Config) *App {
 	a := newApp(cfg)
-	a.providers = []providers.Provider{claude.New(a.claudeActive), codex.New(), cursor.New()}
+	a.providers = []providers.Provider{claude.New(a.claudeActive), codex.New(), cursor.New(), copilot.New()}
 	a.transcripts = true
 	return a
 }

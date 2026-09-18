@@ -53,6 +53,7 @@ A interface segue o idioma do sistema: português ou inglês.
 | **Claude Code** | A credencial OAuth do próprio Claude Code (`~/.claude/.credentials.json`), no mesmo endpoint que o `/usage` dele consulta. Sessão atual mais o anel semanal. O token é renovado rodando `claude -p` pouco antes de expirar. |
 | **Codex** | A sessão da CLI do Codex (`~/.codex/auth.json`) no endpoint de uso do ChatGPT; sem login, os limites que a última execução gravou em `~/.codex/sessions`. |
 | **Cursor** | A sessão do próprio editor no `state.vscdb`, em `cursor.com/api/usage-summary`. |
+| **GitHub Copilot** | O login dos plugins do próprio Copilot (`~/.config/github-copilot/apps.json`) ou, na falta dele, o do GitHub CLI (`gh auth login`), no endpoint de cota que os editores do Copilot consultam. Requisições premium nos planos pagos; chat e completions de código no Free, tudo mensal. |
 
 As credenciais são emprestadas **só para leitura** das ferramentas que são donas delas: o gonotch
 nunca faz login, nunca renova nem grava um token e nunca registra um em log. Uma ferramenta que não
@@ -147,10 +148,12 @@ flowchart LR
         CC["Claude Code<br/>~/.claude"]
         CX["Codex CLI<br/>~/.codex"]
         CU["Cursor<br/>state.vscdb"]
+        GH["GitHub Copilot<br/>plugin · gh"]
     end
     CC -- "token OAuth (só leitura)" --> P
     CX -- "sessão · rollouts" --> P
     CU -- "cookie de sessão" --> P
+    GH -- "token do GitHub (só leitura)" --> P
     P["provedores<br/>APIs de uso via HTTPS"] --> A(("gonotch"))
     H["hooks do Claude Code"] -- "gonotch-hook" --> S[/"socket Unix<br/>$XDG_RUNTIME_DIR"/]
     S --> A

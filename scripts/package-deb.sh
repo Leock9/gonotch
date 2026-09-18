@@ -35,8 +35,9 @@ Priority: optional
 Homepage: https://github.com/leock9/gonotch
 Description: AI coding usage limits in a notch on the screen edge
  A small black notch on the edge of the desktop with one ring per coding
- assistant (Claude Code, Codex, Cursor), coloured by how much of its usage
- limit is gone, and whether Claude Code is working or waiting on you.
+ assistant (Claude Code, Codex, Cursor, GitHub Copilot), coloured by how much
+ of its usage limit is gone, and whether Claude Code is working or waiting on
+ you.
 CONTROL
 dpkg-deb --build --root-owner-group "$root" "$out/gonotch_${version}_amd64.deb" >/dev/null
 echo "$out/gonotch_${version}_amd64.deb"

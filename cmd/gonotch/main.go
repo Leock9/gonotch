@@ -176,14 +176,18 @@ func status(asJSON bool) error {
 		return err
 	}
 	lang, now := text.Detect(), time.Now()
+	nameWidth := 0
 	for _, p := range st.Providers {
-		line := fmt.Sprintf("%-7s", p.Name)
+		nameWidth = max(nameWidth, len(p.Name))
+	}
+	for _, p := range st.Providers {
+		line := fmt.Sprintf("%-*s", nameWidth, p.Name)
 		h, ok := p.HeadlineWindow()
 		switch {
 		case ok:
 			line += fmt.Sprintf(" %5s  %s", text.Pct(h.Used), text.Reset(lang, h.ResetsAt, now))
 			if w, ok := p.WeeklyWindow(); ok {
-				line += fmt.Sprintf(" · %s %s", w.Label, text.Pct(w.Used))
+				line += fmt.Sprintf(" · %s %s", text.Label(lang, w.Label), text.Pct(w.Used))
 			}
 		case p.Status == usage.StatusLoading:
 			line += "     …"

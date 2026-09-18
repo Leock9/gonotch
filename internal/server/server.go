@@ -4,7 +4,7 @@
 //
 //	POST /event            body = the hook's stdin JSON; ?pid= the process that ran the hook
 //	GET  /state            the same State the notch draws, as JSON
-//	POST /refresh          ?provider=claude|codex|cursor, or every provider without it
+//	POST /refresh          ?provider=claude|codex|cursor|copilot, or every provider without it
 //	POST /settings         opens the settings window
 package server
 

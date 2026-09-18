@@ -50,6 +50,7 @@ session to jump to its terminal; click a ring to read it again; right-click for 
 | **Claude Code** | Claude Code's own OAuth credential (`~/.claude/.credentials.json`) against the endpoint its `/usage` asks. Current session plus weekly ring. The token is renewed by running `claude -p` shortly before it expires. |
 | **Codex** | The Codex CLI's session (`~/.codex/auth.json`) against ChatGPT's usage endpoint; without a sign-in, the limits the last run wrote into `~/.codex/sessions`. |
 | **Cursor** | The editor's own session in its `state.vscdb`, against `cursor.com/api/usage-summary`. |
+| **GitHub Copilot** | The sign-in of Copilot's own editor plugins (`~/.config/github-copilot/apps.json`), or else the GitHub CLI's (`gh auth login`), against the quota endpoint Copilot's editors ask. Premium requests on paid plans; chat and code completions on Free, all monthly. |
 
 Credentials are borrowed **read-only** from the tools that own them: gonotch never signs in, never
 refreshes or writes a token, and never logs one. A tool that isn't installed simply gets no ring.
@@ -143,10 +144,12 @@ flowchart LR
         CC["Claude Code<br/>~/.claude"]
         CX["Codex CLI<br/>~/.codex"]
         CU["Cursor<br/>state.vscdb"]
+        GH["GitHub Copilot<br/>plugin · gh"]
     end
     CC -- "OAuth token (read-only)" --> P
     CX -- "session · rollouts" --> P
     CU -- "session cookie" --> P
+    GH -- "GitHub token (read-only)" --> P
     P["providers<br/>HTTPS usage APIs"] --> A(("gonotch"))
     H["Claude Code hooks"] -- "gonotch-hook" --> S[/"Unix socket<br/>$XDG_RUNTIME_DIR"/]
     S --> A

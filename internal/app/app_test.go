@@ -45,8 +45,8 @@ func TestStateFollowsTheOrderAndLeavesOutHiddenAndAbsent(t *testing.T) {
 		t.Fatalf("rings after hiding cursor = %v", got)
 	}
 	catalog := a.Catalog()
-	if got := ids(catalog); !reflect.DeepEqual(got, []string{"cursor", "claude", "codex"}) {
-		t.Fatalf("the settings list every provider: %v", got)
+	if got := ids(catalog); !reflect.DeepEqual(got, []string{"cursor", "claude", "codex", "copilot"}) {
+		t.Fatalf("the settings list every provider, the ones missing from the order last: %v", got)
 	}
 	if !catalog[0].Hidden || catalog[2].Status != usage.StatusAbsent {
 		t.Fatalf("catalog marks hidden and absent: %+v", catalog)
