@@ -28,7 +28,7 @@ func (p provider) Poll(_ context.Context, _ usage.Snapshot) (usage.Snapshot, tim
 	return s, time.Minute
 }
 
-// Providers returns the three rings with one reading in each colour band.
+// Providers returns the four rings, their readings spread over every colour band.
 func Providers() []providers.Provider {
 	return []providers.Provider{
 		provider{"claude", "Claude", "https://claude.ai/settings/usage", func(now time.Time) usage.Snapshot {
@@ -47,6 +47,13 @@ func Providers() []providers.Provider {
 		provider{"cursor", "Cursor", "https://cursor.com/dashboard?tab=usage", func(now time.Time) usage.Snapshot {
 			return usage.Snapshot{Headline: "included", Plan: "Pro", Windows: []usage.Window{
 				{ID: "included", Label: "Included usage", Used: 0.87, ResetsAt: now.Add(11 * 24 * time.Hour)},
+			}}
+		}},
+		provider{"copilot", "GitHub Copilot", "https://github.com/settings/copilot/features", func(now time.Time) usage.Snapshot {
+			// A paid plan meters premium requests only; they reset on the 1st, 00:00 UTC
+			reset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+			return usage.Snapshot{Headline: "premium_interactions", Plan: "Individual", Windows: []usage.Window{
+				{ID: "premium_interactions", Label: "Premium requests", Used: 0.46, ResetsAt: reset},
 			}}
 		}},
 	}

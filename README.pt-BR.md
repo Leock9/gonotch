@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.png" alt="gonotch — um notch na borda da tela mostrando o uso do Claude Code, Codex e Cursor" width="100%">
+<img src="docs/assets/banner.png" alt="gonotch — um notch na borda da tela mostrando o uso do Claude Code, Codex, Cursor e GitHub Copilot" width="100%">
 
 [![CI](https://github.com/leock9/gonotch/actions/workflows/ci.yml/badge.svg)](https://github.com/leock9/gonotch/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
@@ -42,11 +42,11 @@ direito abre o menu.
 
 | <img src="docs/assets/card.png" alt="O cartão do Claude: sessão atual, limites semanais e sessões" width="360"> | <img src="docs/assets/settings.png" alt="A janela de configurações" width="400"> |
 |:--:|:--:|
-| O cartão de hover | Configurações: anéis, ordem, borda, altura, auto-ocultar |
+| O cartão de hover | Configurações: anéis, ordem, borda, altura, auto-ocultar, atualizações |
 
 </div>
 
-A interface segue o idioma do sistema: português ou inglês.
+A interface segue o idioma do sistema (`LC_ALL`, `LC_MESSAGES` ou `LANG`): português ou inglês.
 
 | Anel | De onde vem o número |
 |---|---|
@@ -96,6 +96,16 @@ sudo apt install build-essential pkg-config libgtk-3-dev libgirepository1.0-dev
 git clone https://github.com/leock9/gonotch && cd gonotch
 make install    # → ~/.local/bin; a primeira compilação leva alguns minutos nos bindings de GTK
 ```
+
+#### Opções do instalador
+
+| Opção | |
+|---|---|
+| `--hooks` | Liga os hooks do Claude Code ao gonotch |
+| `--autostart` | Inicia o gonotch com a sessão |
+| `--version vX.Y.Z` | Uma versão específica em vez da última |
+| `--prefix DIR` | Instala em `DIR/bin` (padrão `~/.local`) |
+| `--uninstall` | Remove os binários, os hooks e a entrada de autostart |
 
 #### Atualizar e remover
 
@@ -243,7 +253,8 @@ make screenshots    # regera docs/assets a partir do código de desenho real, nu
   pode travar o loop principal em `XSync`; o handler de desenho solta na thread do GTK (`release` em `internal/ui/ui.go`).
 - Um `ld` do Homebrew antes de `/usr/bin` no `PATH` quebra o link; o Makefile passa `-B/usr/bin/`.
 
-Contribuições são bem-vindas — veja o [CONTRIBUTING.md](CONTRIBUTING.md).
+Contribuições são bem-vindas — veja o [CONTRIBUTING.md](CONTRIBUTING.md). A `main` só recebe pull
+requests com o CI passando; ninguém faz push direto nela.
 
 ## Créditos
 
@@ -255,7 +266,7 @@ os provedores do port em Rust foram a referência que esta implementação segue
 implementação nova, não um fork. O Codenotch é licenciado sob MIT.
 
 - Marcas dos provedores do [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). São marcas
-  registradas da Anthropic, OpenAI e Anysphere, usadas só para identificar o produto cujo uso é
+  registradas da Anthropic, OpenAI, Anysphere e GitHub, usadas só para identificar o produto cujo uso é
   mostrado; o gonotch não tem afiliação com nenhuma delas.
 - O gopher do Go foi criado por [Renée French](https://reneefrench.blogspot.com/) e é licenciado sob
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). O banner usa o gopher de lanterna do
