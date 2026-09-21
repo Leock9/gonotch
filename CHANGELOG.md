@@ -19,6 +19,10 @@ release workflow refuses a tag without one.
 - `gonotch version` and `gonotch status` mention a newer release once one has been found.
 - Release notes: each release's notes on GitHub now come from this changelog.
 
+### Changed
+
+- `gonotch demo` shows a GitHub Copilot ring too, and so do the README's images.
+
 ## [0.2.0] - 2026-09-18
 
 ### Added

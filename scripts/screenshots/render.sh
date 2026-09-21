@@ -18,20 +18,21 @@ F=/usr/share/fonts/truetype/dejavu
 convert -size 800x1280 gradient:'#0b0f1e'-'#5b21b6' -rotate -90 /tmp/plain.png
 rsvg-convert -h 330 scripts/screenshots/gopher-headlamp.svg -o /tmp/gopher.png
 convert /tmp/plain.png \
-  \( -size 1280x800 radial-gradient:'#ffffff30'-'#00000000' -geometry -380-160 \) -compose over -composite \
+  \( -size 1280x1280 radial-gradient:'#ffffff30'-'#00000000' -geometry -380-400 \) -compose over -composite \
   /tmp/gopher.png -geometry +70+232 -compose over -composite \
   -font $F/DejaVuSans-Bold.ttf -pointsize 104 -fill white -annotate +410+345 'gonotch' \
   -font $F/DejaVuSans.ttf -pointsize 33 -fill '#e2e8f0' -annotate +414+405 'Your AI coding limits, one glance away.' \
-  -font $F/DejaVuSans.ttf -pointsize 23 -fill '#c4b5fd' -annotate +416+455 'Claude Code · Codex · Cursor  —  a notch for Linux, written in Go' \
+  -font $F/DejaVuSans.ttf -pointsize 23 -fill '#c4b5fd' -annotate +416+455 'Claude Code · Codex · Cursor · GitHub Copilot' \
+  -annotate +416+490 'a notch for Linux, written in Go' \
   /tmp/banner-wall.png
 
 # over FRAME CROP OUT [WALLPAPER]: the notch window where it sits on a 1280x800 screen
 over() { convert "${4:-/tmp/plain.png}" "$1" -geometry +920+75 -composite -crop "$2" +repage "$3"; }
-over $FRAMES/notch.png 1280x420+0+190 $OUT/banner.png /tmp/banner-wall.png
-over $FRAMES/notch.png 150x440+1130+180 /tmp/notch.png
-over $FRAMES/waiting.png 150x440+1130+180 /tmp/waiting.png
-over $FRAMES/tucked.png 150x440+1130+180 /tmp/tucked.png
-over $FRAMES/card-claude.png 440x600+840+100 $OUT/card.png
+over $FRAMES/notch.png 1280x520+0+140 $OUT/banner.png /tmp/banner-wall.png
+over $FRAMES/notch.png 150x540+1130+130 /tmp/notch.png
+over $FRAMES/waiting.png 150x540+1130+130 /tmp/waiting.png
+over $FRAMES/tucked.png 150x540+1130+130 /tmp/tucked.png
+over $FRAMES/card-claude.png 440x620+840+50 $OUT/card.png
 convert /tmp/notch.png /tmp/waiting.png /tmp/tucked.png -background '#0b0f1e' -splice 10x0 +append -chop 10x0 $OUT/states.png
 
 gif() { # gif OUT FPS COLOURS: /tmp/gif/%03d.png into a looping GIF
@@ -42,15 +43,15 @@ gif() { # gif OUT FPS COLOURS: /tmp/gif/%03d.png into a looping GIF
 }
 mkdir -p /tmp/gif; i=0
 add() { over "$1" "$2" /tmp/gif/$(printf %03d $i).png; i=$((i+1)); }
-for f in $FRAMES/spin-*.png; do add $f 440x600+840+100; done
-for p in claude codex cursor; do for f in $FRAMES/card-$p-*.png; do add $f 440x600+840+100; done; done
-for f in $FRAMES/spin-*.png; do add $f 440x600+840+100; done
+for f in $FRAMES/spin-*.png; do add $f 440x620+840+50; done
+for p in claude codex cursor copilot; do for f in $FRAMES/card-$p-*.png; do add $f 440x620+840+50; done; done
+for f in $FRAMES/spin-*.png; do add $f 440x620+840+50; done
 gif $OUT/demo.gif 15 128
 mkdir -p /tmp/gif; i=0
-for n in $(seq 1 12); do add $FRAMES/slide-00.png 150x440+1130+180; done
-for f in $FRAMES/slide-0*.png; do add $f 150x440+1130+180; done
-for n in $(seq 1 16); do add $FRAMES/slide-08.png 150x440+1130+180; done
-for f in $(ls $FRAMES/slide-0*.png | sort -r); do add $f 150x440+1130+180; done
+for n in $(seq 1 12); do add $FRAMES/slide-00.png 150x540+1130+130; done
+for f in $FRAMES/slide-0*.png; do add $f 150x540+1130+130; done
+for n in $(seq 1 16); do add $FRAMES/slide-08.png 150x540+1130+130; done
+for f in $(ls $FRAMES/slide-0*.png | sort -r); do add $f 150x540+1130+130; done
 gif $OUT/autohide.gif 15 96
 
 # The settings window, dark, from a running demo

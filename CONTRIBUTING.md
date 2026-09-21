@@ -37,13 +37,33 @@ gonotch demo # or bin/gonotch demo: the UI with made-up data, no accounts needed
 - **UI changes:** attach a screenshot, and run `make screenshots` if the README's images change.
   It renders them in a container from the real drawing code (`internal/ui/snapshot_test.go`).
 
+## How a change lands
+
+`main` is protected: every change reaches it through a pull request, the maintainer's included.
+
+- **Branch off `main`** and open a pull request against it. Direct pushes, force pushes and deleting
+  `main` are refused.
+- **CI must pass**: *Core tests*, *Build (ubuntu-22.04)* and *Build (ubuntu-24.04)*. The branch must
+  also be up to date with `main`, so rebase it (or use *Update branch*) when `main` moved.
+- **Every review conversation is resolved** before merging.
+- **History stays linear**: merge with *Squash and merge* or *Rebase and merge*; merge commits are
+  refused. A squashed pull request's title and description become the commit, so write them the way
+  the log reads: what changed and why.
+
 ## Releasing
 
-Note each change under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) as it lands. To release,
-rename that section to `## [X.Y.Z] - YYYY-MM-DD`, add its compare link at the bottom, commit, and
-push a `vX.Y.Z` tag: the release workflow builds on Ubuntu 22.04 and publishes the tarball, the
-`.deb` and `SHA256SUMS` with that section as the release notes (`scripts/release-notes.sh`). A tag
-without a section fails before anything is built. Running notches see the release within a day.
+Note each change under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) in the pull request that
+makes it. To release, open a pull request that renames that section to `## [X.Y.Z] - YYYY-MM-DD` and
+adds its compare link at the bottom. Once it is merged, tag that commit and push the tag (tags are
+not covered by the rules on `main`):
+
+```bash
+git fetch origin && git tag vX.Y.Z origin/main && git push origin vX.Y.Z
+```
+
+The release workflow builds on Ubuntu 22.04 and publishes the tarball, the `.deb` and `SHA256SUMS`
+with that section as the release notes (`scripts/release-notes.sh`). A tag without a section fails
+before anything is built. Running notches see the release within a day.
 
 ## Adding a provider
 

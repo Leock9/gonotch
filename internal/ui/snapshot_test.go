@@ -43,7 +43,7 @@ func TestSnapshots(t *testing.T) {
 	for _, ev := range demo.Sessions() {
 		a.Apply(ev)
 	}
-	for deadline := time.Now().Add(5 * time.Second); len(a.State().Providers) < 3; {
+	for deadline := time.Now().Add(5 * time.Second); len(a.State().Providers) < len(demo.Providers()); {
 		if time.Now().After(deadline) {
 			t.Fatal("the demo providers never published")
 		}
@@ -73,7 +73,7 @@ func TestSnapshots(t *testing.T) {
 
 	render("notch.png", t0)
 	frames("spin", 22, t0) // about 1.4 s: one turn of the arc
-	for i, name := range []string{"claude", "codex", "cursor"} {
+	for i, name := range []string{"claude", "codex", "cursor", "copilot"} {
 		u.hover = i
 		u.buildCard()
 		render("card-"+name+".png", t0)
